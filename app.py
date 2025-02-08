@@ -36,7 +36,7 @@ def generate_stream():
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n'
                    b'Content-Length: %d\r\n\r\n' % len(frame) + frame + b'\r\n')
-        time.sleep(0.05)  # Reduced sleep time to allow faster frame updates
+        time.sleep(0.01)  # Reduced sleep time to allow faster frame updates
 
 @app.route('/stream.mjpg')
 def stream():
