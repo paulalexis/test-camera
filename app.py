@@ -30,20 +30,21 @@ def upload_image():
 def generate_stream():
     """Generate MJPEG stream of the latest frame."""
     while True:
-        if latest_frame:
-            with frame_lock:
-                frame = latest_frame
+        with frame_lock:
+            frame = latest_frame
+        if frame:
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n'
                    b'Content-Length: %d\r\n\r\n' % len(frame) + frame + b'\r\n')
-        time.sleep(0.01)  # Reduced sleep time to allow faster frame updates
+        else:
+            time.sleep(0.001)  # Reduce delay when waiting for frames
 
 @app.route('/stream.mjpg')
 def stream():
     """Route to stream the MJPEG."""
     return Response(generate_stream(), 
                     content_type='multipart/x-mixed-replace; boundary=frame',
-                    headers={'Cache-Control': 'no-cache'})
+                    headers={'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, threaded=True)
+    app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
