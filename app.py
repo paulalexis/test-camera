@@ -1,49 +1,57 @@
-from flask import Flask, render_template, request, Response
-import io
+from flask import Flask, render_template, Response
+import asyncio
+import websockets
 import threading
+import cv2
+import numpy as np
 import time
 
 app = Flask(__name__)
 
+# Global variable for latest frame
 latest_frame = None
 frame_lock = threading.Lock()
 
 @app.route('/')
 def index():
-    """Render the main HTML page."""
+    """Render HTML page."""
     return render_template('index.html')
 
-@app.route('/upload_image', methods=['POST'])
-def upload_image():
-    """Receive and store an image from the Raspberry Pi."""
+async def websocket_server(websocket, path):
+    """Receive image frames from WebSocket."""
     global latest_frame
-    if 'image' in request.files:
-        image_file = request.files['image']
-        image_bytes = image_file.read()
+    async for image_bytes in websocket:
+        # Decode Image
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # Store the image in a global variable (thread-safe with lock)
+        # Store frame (Thread-Safe)
         with frame_lock:
-            latest_frame = image_bytes
-        return 'Image received', 200
-    return 'No image received', 400
+            latest_frame = frame
+
+# Start WebSocket server in background thread
+def start_websocket():
+    asyncio.set_event_loop(asyncio.new_event_loop())
+    server = websockets.serve(websocket_server, "0.0.0.0", 5000)
+    asyncio.get_event_loop().run_until_complete(server)
+    asyncio.get_event_loop().run_forever()
+
+threading.Thread(target=start_websocket, daemon=True).start()
 
 def generate_stream():
-    """Generate MJPEG stream of the latest frame."""
+    """Generate MJPEG stream from the latest frame."""
     while True:
-        if latest_frame:
+        if latest_frame is not None:
             with frame_lock:
-                frame = latest_frame
+                _, jpeg = cv2.imencode('.jpg', latest_frame)
             yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n'
-                   b'Content-Length: %d\r\n\r\n' % len(frame) + frame + b'\r\n')
-        time.sleep(0.05)  # Reduced sleep time to allow faster frame updates
+                   b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+        time.sleep(0.01)  # Faster frame updates
 
 @app.route('/stream.mjpg')
 def stream():
-    """Route to stream the MJPEG."""
-    return Response(generate_stream(), 
-                    content_type='multipart/x-mixed-replace; boundary=frame',
-                    headers={'Cache-Control': 'no-cache'})
+    """MJPEG Video Stream."""
+    return Response(generate_stream(), content_type='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, threaded=True)
