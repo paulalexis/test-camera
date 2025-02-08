@@ -8,4 +8,6 @@ Flask-SQLAlchemy==2.5.1
 SQLAlchemy==1.4.47
 gevent
 websockets
+daphne
 opencv-python-headless
+asyncio
