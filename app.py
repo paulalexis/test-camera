@@ -1,30 +1,49 @@
-from flask import Flask, render_template
-import asyncio
-import websockets
+from flask import Flask, render_template, request, Response
+import io
+import threading
+import time
 
 app = Flask(__name__)
 
+latest_frame = None
+frame_lock = threading.Lock()
+
 @app.route('/')
 def index():
-    """Render HTML page."""
+    """Render the main HTML page."""
     return render_template('index.html')
 
-async def websocket_server(websocket, path):
-    """Handle WebSocket connections."""
-    while True:
-        try:
-            message = await websocket.recv()
-            print(f"Received: {message}")
-            await websocket.send(f"Echo: {message}")
-        except websockets.ConnectionClosed:
-            break
+@app.route('/upload_image', methods=['POST'])
+def upload_image():
+    """Receive and store an image from the Raspberry Pi."""
+    global latest_frame
+    if 'image' in request.files:
+        image_file = request.files['image']
+        image_bytes = image_file.read()
 
-async def start_websocket():
-    """Start WebSocket Server."""
-    server = await websockets.serve(websocket_server, "0.0.0.0", 443)  # Run on Port 443
-    await server.wait_closed()
+        # Store the image in a global variable (thread-safe with lock)
+        with frame_lock:
+            latest_frame = image_bytes
+        return 'Image received', 200
+    return 'No image received', 400
+
+def generate_stream():
+    """Generate MJPEG stream of the latest frame."""
+    while True:
+        if latest_frame:
+            with frame_lock:
+                frame = latest_frame
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n'
+                   b'Content-Length: %d\r\n\r\n' % len(frame) + frame + b'\r\n')
+        time.sleep(0.05)  # Reduced sleep time to allow faster frame updates
+
+@app.route('/stream.mjpg')
+def stream():
+    """Route to stream the MJPEG."""
+    return Response(generate_stream(), 
+                    content_type='multipart/x-mixed-replace; boundary=frame',
+                    headers={'Cache-Control': 'no-cache'})
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(start_websocket())  # Start WebSocket Server
-    app.run(host='0.0.0.0', port=10000, threaded=True)  # Flask Server on Port 10000
+    app.run(host='0.0.0.0', port=5000, threaded=True)
