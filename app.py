@@ -30,14 +30,16 @@ def upload_image():
 def generate_stream():
     """Generate MJPEG stream of the latest frame."""
     while True:
+        # Make sure to only send the most recent frame
         with frame_lock:
             frame = latest_frame
+        
         if frame:
+            # Send the frame to the browser
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n'
                    b'Content-Length: %d\r\n\r\n' % len(frame) + frame + b'\r\n')
-        else:
-            time.sleep(0.001)  # Reduce delay when waiting for frames
+        time.sleep(0.001)  # Reduce delay when waiting for frames to update
 
 @app.route('/stream.mjpg')
 def stream():
